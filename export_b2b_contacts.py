@@ -381,7 +381,7 @@ def write_companies_csv(companies):
 # --- Main Logic ---
 def main():
     # For testing - set to 0 for unlimited contacts
-    TEST_LIMIT = 0
+    TEST_LIMIT = 100
     
     print("\n{} Starting B2B contacts export...".format(INDICATORS['info']))
     contact_ids = get_contacts_with_tag('B2B')
@@ -404,18 +404,18 @@ def main():
     total_contacts = len(contact_ids)
     for idx, cid in enumerate(contact_ids, 1):
         try:
-            # Progress indicator (show every 10 contacts)
-            if idx % 10 == 0 or idx == 1 or idx == total_contacts:
-                print("{} Progress: {}/{} contacts processed".format(
-                    INDICATORS['progress'],
-                    idx,
-                    total_contacts
-                ))
+            # Progress indicator (update on same line)
+            sys.stdout.write("\r{} Progress: {}/{} contacts processed".format(
+                INDICATORS['progress'],
+                idx,
+                total_contacts
+            ))
+            sys.stdout.flush()
             
             # Get contact details
             contact = get_contact_details(cid)
             if not contact:
-                print("{} Skipping contact ID {} - no details found".format(INDICATORS['warning'], cid))
+                print("\n{} Skipping contact ID {} - no details found".format(INDICATORS['warning'], cid))
                 continue
             
             # Contact basic info
@@ -448,10 +448,12 @@ def main():
                 addresses_csv.extend(addresses)
                 
         except Exception as e:
-            print("{} Error processing contact {}: {}".format(INDICATORS['error'], cid, str(e)))
+            print("\n{} Error processing contact {}: {}".format(INDICATORS['error'], cid, str(e)))
             continue
 
-    print("\n{} Writing export files:".format(INDICATORS['info']))
+    # Print a newline after progress is complete
+    print("\n")
+    print("{} Writing export files:".format(INDICATORS['info']))
     print("- contacts.csv: {} records".format(len(contacts_csv)))
     write_contacts_csv(contacts_csv)
     print("- addresses.csv: {} records".format(len(addresses_csv)))
