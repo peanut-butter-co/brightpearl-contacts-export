@@ -381,7 +381,7 @@ def write_companies_csv(companies):
 # --- Main Logic ---
 def main():
     # For testing - set to 0 for unlimited contacts
-    TEST_LIMIT = 100
+    TEST_LIMIT = 0
     
     print("\n{} Starting B2B contacts export...".format(INDICATORS['info']))
     contact_ids = get_contacts_with_tag('B2B')
