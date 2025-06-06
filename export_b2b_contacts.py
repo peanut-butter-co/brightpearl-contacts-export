@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import os
 import requests
 import csv
@@ -34,22 +36,54 @@ REQUEST_DELAY = 0.5  # Half second delay between requests
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # Seconds to wait between retries
 
+# Let's use simple text indicators instead of emojis for better compatibility
+INDICATORS = {
+    'error': '[ERROR]',
+    'warning': '[WARNING]',
+    'info': '[INFO]',
+    'success': '[SUCCESS]',
+    'progress': '[PROGRESS]'
+}
+
 def make_request(url, headers, params=None):
     """
     Make a rate-limited request with retries
     """
+    start_time = time.time()
     for attempt in range(MAX_RETRIES):
         try:
             time.sleep(REQUEST_DELAY)  # Rate limiting delay
             resp = requests.get(url, headers=headers, params=params)
             resp.raise_for_status()
+            elapsed = time.time() - start_time
+            if elapsed > 5:  # Log if request takes more than 5 seconds
+                print("{} API request took {:.1f}s: {}".format(
+                    INDICATORS['warning'],
+                    elapsed,
+                    url
+                ))
             return resp
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 429:  # Too Many Requests
                 if attempt < MAX_RETRIES - 1:  # Don't sleep on last attempt
-                    print("Rate limit hit, waiting {} seconds...".format(RETRY_DELAY))
+                    print("{} Rate limit hit, waiting {} seconds...".format(
+                        INDICATORS['warning'],
+                        RETRY_DELAY
+                    ))
                     time.sleep(RETRY_DELAY)
                     continue
+            print("{} HTTP error on {}: {}".format(
+                INDICATORS['error'],
+                url,
+                str(e)
+            ))
+            raise
+        except Exception as e:
+            print("{} Request error on {}: {}".format(
+                INDICATORS['error'],
+                url,
+                str(e)
+            ))
             raise
     return None
 
@@ -57,56 +91,73 @@ def make_request(url, headers, params=None):
 def get_tag_id(tag_name):
     url = "{}/contact-service/tag".format(BASE_URL)
     try:
-        print("Looking up tag ID for '{}'...".format(tag_name))
         resp = make_request(url, HEADERS)
         if not resp:
             return None
         data = resp.json()
         
-        # The response has a nested structure: {'response': {'tagId': {'tagName': '...', ...}}}
+        # Find the tag with matching name
         tags = data.get('response', {})
-        
-        # Search through all tags
         for tag_id, tag_info in tags.items():
             if isinstance(tag_info, dict) and tag_info.get('tagName', '').upper() == tag_name.upper():
-                print("Found tag '{}' with ID {}".format(tag_name, tag_info['tagId']))
                 return tag_info['tagId']
                     
-        print("Warning: Tag '{}' not found in response".format(tag_name))
+        print("{} Tag '{}' not found".format(INDICATORS['error'], tag_name))
         return None
     except Exception as e:
-        print("Error fetching tag ID:", e)
-        print("Response content:", resp.text if resp else "No response")
+        print("{} Error fetching tag ID: {}".format(INDICATORS['error'], str(e)))
         return None
 
 def get_contacts_with_tag(tag_name):
     # First get the tag ID
     tag_id = get_tag_id(tag_name)
     if not tag_id:
-        print("Could not find tag ID for '{}'. Aborting search.".format(tag_name))
         return []
         
     url = "{}/contact-service/contact-search".format(BASE_URL)
-    params = {
-        "firstResult": 1,
-        "maxResults": 500,
-        "tagIds": tag_id
-    }
-    try:
-        print("Searching for contacts with tag '{}'...".format(tag_name))
-        resp = make_request(url, HEADERS, params)
-        if not resp:
-            return []
-        data = resp.json()
+    all_contact_ids = []
+    first_result = 1
+    page_size = 200  # Maximum allowed by Brightpearl
+    
+    while True:
+        params = {
+            "firstResult": first_result,
+            "maxResults": page_size,
+            "tagIds": tag_id
+        }
         
-        results = data.get('response', {}).get('results', [])
-        print("Found {} contacts with tag '{}'".format(len(results), tag_name))
-        
-        contact_ids = [result[0] for result in results if result and len(result) > 0]
-        return contact_ids
-    except Exception as e:
-        print("Error fetching contacts:", e)
-        return []
+        try:
+            resp = make_request(url, HEADERS, params)
+            if not resp:
+                break
+                
+            data = resp.json()
+            results = data.get('response', {}).get('results', [])
+            
+            if not results:
+                break
+                
+            # Extract contact IDs from this page
+            page_contact_ids = [result[0] for result in results if result and len(result) > 0]
+            all_contact_ids.extend(page_contact_ids)
+            
+            current_page = ((first_result - 1) // page_size) + 1
+            print("{} Page {}: {} contacts".format(INDICATORS['info'], current_page, len(page_contact_ids)))
+            
+            # Update first_result for next page
+            first_result += len(page_contact_ids)
+            
+            # If we got fewer results than requested, we're done
+            if len(page_contact_ids) < page_size:
+                break
+            
+        except Exception as e:
+            print("{} Error fetching contacts page {}: {}".format(INDICATORS['error'], current_page, e))
+            break
+    
+    total = len(all_contact_ids)
+    print("{} Found {} total contacts with tag '{}'".format(INDICATORS['success'], total, tag_name))
+    return all_contact_ids
 
 def get_contact_details(contact_id):
     url = "{}/contact-service/contact-search".format(BASE_URL)
@@ -147,25 +198,18 @@ def get_contact_addresses(contact_id):
     try:
         # Get full contact details using direct contact endpoint
         contact_url = "{}/contact-service/contact/{}".format(BASE_URL, contact_id)
-        print("Fetching contact details from:", contact_url)
         resp = make_request(contact_url, HEADERS)
         if not resp:
             return []
             
         contact_data = resp.json()
-        print("Contact data response:", contact_data)
-        
-        # The response contains a list in the 'response' field
         contact = contact_data.get('response', [])[0] if contact_data.get('response') else None
         if not contact:
-            print("No contact found for ID {}".format(contact_id))
             return []
         
         # Get postal address IDs from the postAddressIds dictionary
         post_address_ids = contact.get('postAddressIds', {})
-        print("Found address IDs:", post_address_ids)
         if not post_address_ids:
-            print("No addresses found")
             return []
             
         # Create a mapping of address IDs to their types
@@ -177,21 +221,14 @@ def get_contact_addresses(contact_id):
             
         # Fetch each unique address once
         addresses = []
-        num_addresses = len(address_types)
-        print("Found {} unique address{}...".format(
-            num_addresses,
-            '' if num_addresses == 1 else 'es'
-        ))
-        
         for addr_id in address_types.keys():
-            addr_url = "{}/contact-service/postal-address/{}".format(BASE_URL, addr_id)
-            print("Fetching address from:", addr_url)
-            resp = make_request(addr_url, HEADERS)
+            resp = make_request(
+                "{}/contact-service/postal-address/{}".format(BASE_URL, addr_id),
+                HEADERS
+            )
             if not resp:
                 continue
                 
-            addr_data = resp.json()
-            print("Address data response:", addr_data)
             addr_data = resp.json().get('response', [])
             if addr_data:
                 addr = addr_data[0]
@@ -203,31 +240,16 @@ def get_contact_addresses(contact_id):
                 type_order = {'BIL': 0, 'DEL': 1, 'DEF': 2}
                 types.sort(key=lambda x: type_order.get(x, 99))
                 addr['addressType'] = '/'.join(types)
-                
-                # Add a more readable type description
-                type_desc = []
-                for t in types:
-                    if t == 'BIL': type_desc.append('Billing')
-                    elif t == 'DEL': type_desc.append('Delivery')
-                    elif t == 'DEF': type_desc.append('Default')
-                addr['addressTypeDesc'] = ', '.join(type_desc)
                 addresses.append(addr)
         
-        if addresses:
-            print("Retrieved: {}".format(
-                ', '.join(a.get('addressTypeDesc', '') for a in addresses)
-            ))
-        else:
-            print("No addresses were retrieved successfully")
         return addresses
     except Exception as e:
-        print("Error fetching addresses:", str(e))
-        print("Full error details:", e)
+        print("{} Error fetching addresses for contact {}: {}".format(INDICATORS['error'], contact_id, str(e)))
         return []
 
 def get_company_details(contact_id):
     try:
-        # Get full contact details using direct contact endpoint to get organization info
+        # Get full contact details using direct contact endpoint
         contact_url = "{}/contact-service/contact/{}".format(BASE_URL, contact_id)
         resp = make_request(contact_url, HEADERS)
         if not resp:
@@ -240,7 +262,7 @@ def get_company_details(contact_id):
 
         # Extract organization details
         org = contact.get('organisation', {})
-        if not org:
+        if not org or org.get('organisationId', 0) == 0:
             return None
 
         # Get communication details
@@ -249,16 +271,33 @@ def get_company_details(contact_id):
         telephones = communication.get('telephones', {})
         websites = communication.get('websites', {})
 
+        # Get primary email if it exists
+        primary_email = emails.get('PRI', {})
+        if isinstance(primary_email, dict):
+            email = primary_email.get('email', '')
+        else:
+            email = ''
+
+        # Get primary phone or mobile
+        phone = telephones.get('PRI', '') or telephones.get('MOB', '')
+
+        # Get primary website
+        primary_website = websites.get('PRI', {})
+        if isinstance(primary_website, dict):
+            website = primary_website.get('url', '')
+        else:
+            website = ''
+
         company = {
             'companyId': org.get('organisationId', ''),
             'companyName': org.get('name', ''),
-            'email': emails.get('PRI', {}).get('email', ''),
-            'phone': telephones.get('PRI', '') or telephones.get('MOB', ''),
-            'website': websites.get('PRI', {}).get('url', '')
+            'email': email,
+            'phone': phone,
+            'website': website
         }
         return company
     except Exception as e:
-        print("Error fetching company details:", str(e))
+        print("{} Error fetching company details for contact {}: {}".format(INDICATORS['error'], contact_id, str(e)))
         return None
 
 # --- CSV Writers ---
@@ -284,8 +323,6 @@ def write_addresses_csv(addresses):
     if not os.path.exists('exports'):
         os.makedirs('exports')
     
-    print("\nDebug: About to write {} addresses to CSV".format(len(addresses)))
-    
     with open('exports/addresses.csv', 'wb') as f:
         writer = csv.DictWriter(f, fieldnames=[
             'contactId', 'addressId', 'isBilling', 'isDelivery', 'isDefault',
@@ -309,10 +346,9 @@ def write_addresses_csv(addresses):
                 'addressLine3': a.get('addressLine3', ''),
                 'addressLine4': a.get('addressLine4', ''),
                 'city': a.get('addressLine3', ''),  # City is usually in addressLine3
-                'postcode': a.get('postalCode', ''),  # Note: API uses 'postalCode', not 'postcode'
+                'postcode': a.get('postalCode', ''),
                 'country': a.get('countryIsoCode', '')
             }
-            print("Debug: Writing address:", row)
             
             # Ensure all values are encoded as UTF-8 strings
             encoded_row = {}
@@ -326,14 +362,13 @@ def write_addresses_csv(addresses):
 def write_companies_csv(companies):
     if not os.path.exists('exports'):
         os.makedirs('exports')
-    print("\nDebug: About to write {} companies to CSV".format(len(companies)))
+    
     with open('exports/companies.csv', 'wb') as f:
         writer = csv.DictWriter(f, fieldnames=[
             'companyId', 'companyName', 'email', 'phone', 'website'
         ])
         writer.writeheader()
         for c in companies:
-            print("Debug: Writing company:", c)
             # Ensure all values are encoded as UTF-8 strings
             row = {}
             for key, value in c.items():
@@ -345,71 +380,85 @@ def write_companies_csv(companies):
 
 # --- Main Logic ---
 def main():
-    # For testing - limit to 20 contacts
-    TEST_LIMIT = 10
+    # For testing - set to 0 for unlimited contacts
+    TEST_LIMIT = 0
     
-    print("\nStarting contacts export...")
+    print("\n{} Starting B2B contacts export...".format(INDICATORS['info']))
     contact_ids = get_contacts_with_tag('B2B')
     if TEST_LIMIT:
         original_count = len(contact_ids)
         contact_ids = contact_ids[:TEST_LIMIT]
-        print("\nTEST MODE: Processing {} contacts (limited from {})...\n".format(
+        print("\n{} TEST MODE: Processing {} of {} contacts\n".format(
+            INDICATORS['warning'],
             len(contact_ids),
             original_count
         ))
     else:
-        print("\nProcessing {} contacts...\n".format(len(contact_ids)))
+        print("\n{} Processing all {} contacts\n".format(INDICATORS['info'], len(contact_ids)))
     
     contacts_csv = []
     addresses_csv = []
     companies_csv = []
     company_ids_seen = set()
 
-    for cid in contact_ids:
-        contact = get_contact_details(cid)
-        if not contact:
+    total_contacts = len(contact_ids)
+    for idx, cid in enumerate(contact_ids, 1):
+        try:
+            # Progress indicator (show every 10 contacts)
+            if idx % 10 == 0 or idx == 1 or idx == total_contacts:
+                print("{} Progress: {}/{} contacts processed".format(
+                    INDICATORS['progress'],
+                    idx,
+                    total_contacts
+                ))
+            
+            # Get contact details
+            contact = get_contact_details(cid)
+            if not contact:
+                print("{} Skipping contact ID {} - no details found".format(INDICATORS['warning'], cid))
+                continue
+            
+            # Contact basic info
+            name = u'{} {}'.format(
+                contact['firstName'] or '',
+                contact['lastName'] or ''
+            ).strip()
+            
+            # Get company details if we haven't seen this company before
+            company = get_company_details(cid)
+            company_id = company['companyId'] if company else ''
+            
+            contact_row = {
+                'contactId': contact['contactId'],
+                'name': name,
+                'email': contact['email'],
+                'phone': contact['phone'] or contact['mobile'],
+                'tagList': '',
+                'companyId': company_id
+            }
+            contacts_csv.append(contact_row)
+            
+            if company and company_id and company_id not in company_ids_seen:
+                companies_csv.append(company)
+                company_ids_seen.add(company_id)
+
+            # Get addresses
+            addresses = get_contact_addresses(cid)
+            if addresses:
+                addresses_csv.extend(addresses)
+                
+        except Exception as e:
+            print("{} Error processing contact {}: {}".format(INDICATORS['error'], cid, str(e)))
             continue
-        
-        # Contact basic info
-        name = u'{} {}'.format(
-            contact['firstName'] or '',
-            contact['lastName'] or ''
-        ).strip()
-        
-        # Get company details if we haven't seen this company before
-        company = get_company_details(cid)
-        if company and company['companyId'] not in company_ids_seen:
-            print("Debug: Found new company:", company['companyName'])
-            companies_csv.append(company)
-            company_ids_seen.add(company['companyId'])
-        
-        contact_row = {
-            'contactId': contact['contactId'],
-            'name': name,
-            'email': contact['email'],
-            'phone': contact['phone'] or contact['mobile'],
-            'tagList': '',
-            'companyId': company['companyId'] if company else ''
-        }
-        contacts_csv.append(contact_row)
-        print("Processing: {}".format(name.encode('utf-8')))
 
-        # Get addresses
-        addresses = get_contact_addresses(cid)
-        print("Debug: Got {} addresses for contact {}".format(len(addresses), cid))
-        if addresses:
-            addresses_csv.extend(addresses)
-            print("Debug: Total addresses collected so far: {}".format(len(addresses_csv)))
-        print("")  # Add blank line between contacts
-
-    print("\nWriting files:")
-    print("- contacts.csv ({} records)".format(len(contacts_csv)))
+    print("\n{} Writing export files:".format(INDICATORS['info']))
+    print("- contacts.csv: {} records".format(len(contacts_csv)))
     write_contacts_csv(contacts_csv)
-    print("- addresses.csv ({} records)".format(len(addresses_csv)))
+    print("- addresses.csv: {} records".format(len(addresses_csv)))
     write_addresses_csv(addresses_csv)
-    print("- companies.csv ({} records)".format(len(companies_csv)))
+    print("- companies.csv: {} records".format(len(companies_csv)))
     write_companies_csv(companies_csv)
-    print('\nExport complete!')
+    print('\n{} Export complete!'.format(INDICATORS['success']))
 
 if __name__ == '__main__':
     main()
