@@ -225,8 +225,41 @@ def get_contact_addresses(contact_id):
         print("Full error details:", e)
         return []
 
-def get_company_details(company_id):
-    return get_contact_details(company_id)
+def get_company_details(contact_id):
+    try:
+        # Get full contact details using direct contact endpoint to get organization info
+        contact_url = "{}/contact-service/contact/{}".format(BASE_URL, contact_id)
+        resp = make_request(contact_url, HEADERS)
+        if not resp:
+            return None
+            
+        contact_data = resp.json()
+        contact = contact_data.get('response', [])[0] if contact_data.get('response') else None
+        if not contact:
+            return None
+
+        # Extract organization details
+        org = contact.get('organisation', {})
+        if not org:
+            return None
+
+        # Get communication details
+        communication = contact.get('communication', {})
+        emails = communication.get('emails', {})
+        telephones = communication.get('telephones', {})
+        websites = communication.get('websites', {})
+
+        company = {
+            'companyId': org.get('organisationId', ''),
+            'companyName': org.get('name', ''),
+            'email': emails.get('PRI', {}).get('email', ''),
+            'phone': telephones.get('PRI', '') or telephones.get('MOB', ''),
+            'website': websites.get('PRI', {}).get('url', '')
+        }
+        return company
+    except Exception as e:
+        print("Error fetching company details:", str(e))
+        return None
 
 # --- CSV Writers ---
 def write_contacts_csv(contacts):
@@ -293,12 +326,14 @@ def write_addresses_csv(addresses):
 def write_companies_csv(companies):
     if not os.path.exists('exports'):
         os.makedirs('exports')
+    print("\nDebug: About to write {} companies to CSV".format(len(companies)))
     with open('exports/companies.csv', 'wb') as f:
         writer = csv.DictWriter(f, fieldnames=[
             'companyId', 'companyName', 'email', 'phone', 'website'
         ])
         writer.writeheader()
         for c in companies:
+            print("Debug: Writing company:", c)
             # Ensure all values are encoded as UTF-8 strings
             row = {}
             for key, value in c.items():
@@ -341,13 +376,20 @@ def main():
             contact['lastName'] or ''
         ).strip()
         
+        # Get company details if we haven't seen this company before
+        company = get_company_details(cid)
+        if company and company['companyId'] not in company_ids_seen:
+            print("Debug: Found new company:", company['companyName'])
+            companies_csv.append(company)
+            company_ids_seen.add(company['companyId'])
+        
         contact_row = {
             'contactId': contact['contactId'],
             'name': name,
             'email': contact['email'],
             'phone': contact['phone'] or contact['mobile'],
-            'tagList': '',  # We'll add tag handling later if needed
-            'companyId': ''  # We'll add company handling later if needed
+            'tagList': '',
+            'companyId': company['companyId'] if company else ''
         }
         contacts_csv.append(contact_row)
         print("Processing: {}".format(name.encode('utf-8')))
