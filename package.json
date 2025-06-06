@@ -1,0 +1,16 @@
+{
+  "name": "brightpearl-api-integration",
+  "version": "1.0.0",
+  "description": "Python scripts to interact with the Brightpearl API",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "brightpearl",
+    "api",
+    "python"
+  ],
+  "author": "",
+  "license": "ISC"
+}
