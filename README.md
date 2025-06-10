@@ -42,6 +42,28 @@ The script will show real-time progress as it processes contacts and creates the
 - Creates separate CSV files for contacts, addresses, and companies
 - Shows real-time progress updates
 
+### export_orders.py
+Exports all orders from a specific department (default: department_id=11) into a CSV file.
+
+**Usage:**
+```bash
+python export_orders.py
+```
+
+**Output:**
+- `exports/orders.csv`: Order information with one row per line item
+
+The script will show real-time progress as it processes orders and creates the export file.
+
+**Features:**
+- Fetches all orders from specified department
+- Handles pagination automatically
+- Includes rate limiting and retry logic
+- Processes order line items
+- Creates a CSV file with detailed order information
+- Shows real-time progress updates
+- Each line item gets its own row with shared order details
+
 ### get_contact.py
 Displays detailed information about a single contact.
 
@@ -65,7 +87,7 @@ Displays comprehensive contact information including:
 
 ## Error Handling
 
-Both scripts include:
+All scripts include:
 - API rate limiting protection
 - Error reporting for failed requests
 - Validation of environment variables
@@ -73,7 +95,8 @@ Both scripts include:
 
 ## Notes
 
-- The export script processes contacts in batches to avoid API rate limits
+- The export scripts process data in batches to avoid API rate limits
 - All dates and times are in UTC
 - Address types are marked as BIL (Billing), DEL (Delivery), and DEF (Default)
 - Company relationships are preserved in the exports
+- Order exports include one row per line item, with order details repeated for each line
