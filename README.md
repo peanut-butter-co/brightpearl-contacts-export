@@ -85,6 +85,26 @@ Displays comprehensive contact information including:
 - All associated addresses
 - Relationship status (customer/supplier/staff)
 
+### get_order.py
+Displays detailed information about a single order.
+
+**Usage:**
+```bash
+python get_order.py <order_id>
+```
+
+**Example:**
+```bash
+python get_order.py 54321
+```
+
+**Output:**
+Displays comprehensive order information including:
+- Basic order details (ID, type, reference, status, totals)
+- Customer, delivery, and billing party details
+- All order rows (products, quantities, values)
+- Custom fields if present
+
 ## Error Handling
 
 All scripts include:

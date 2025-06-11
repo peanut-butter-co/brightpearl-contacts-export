@@ -9,8 +9,8 @@ import time
 from typing import List, Dict, Any, Optional
 
 # Set default encoding to UTF-8 for Python 2 compatibility
-reload(sys)
-sys.setdefaultencoding('utf8')
+# reload(sys)
+# sys.setdefaultencoding('utf8')
 
 load_dotenv()
 
@@ -167,156 +167,124 @@ def write_orders_csv(orders):
     """
     if not os.path.exists('exports'):
         os.makedirs('exports')
-        
-    with open('exports/orders.csv', 'wb') as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            # Order fields
-            'orderId', 'parentOrderId', 'orderTypeCode', 'reference', 
-            'orderStatusId', 'orderStatusName', 'orderPaymentStatus',
-            'stockStatusCode', 'allocationStatusCode', 'shippingStatusCode',
-            'placedOn', 'createdOn', 'updatedOn', 'closedOn',
-            'priceListId', 'priceModeCode', 'warehouseId',
-            # Currency fields
-            'accountingCurrencyCode', 'orderCurrencyCode', 'exchangeRate',
-            # Total value fields
-            'orderNetTotal', 'orderTaxTotal', 'orderTotal',
-            # Delivery fields
-            'deliveryDate', 'shippingMethodId',
-            # Assignment fields
-            'staffOwnerContactId', 'projectId', 'channelId', 'leadSourceId', 'teamId',
-            # Party fields - Supplier
-            'supplierContactId', 'supplierName', 'supplierCompany', 
-            'supplierEmail', 'supplierPhone',
-            # Party fields - Delivery
-            'deliveryName', 'deliveryCompany', 'deliveryEmail', 'deliveryPhone',
-            'deliveryAddress1', 'deliveryAddress2', 'deliveryAddress3', 
-            'deliveryAddress4', 'deliveryPostcode', 'deliveryCountry',
-            # Party fields - Billing
-            'billingContactId', 'billingName', 'billingCompany', 
-            'billingEmail', 'billingPhone',
-            'billingAddress1', 'billingAddress2', 'billingAddress3', 
-            'billingAddress4', 'billingPostcode', 'billingCountry',
-            # Row fields
-            'rowId', 'rowSequence', 'productId', 'productName', 'productSku',
-            'quantity', 'itemCostValue', 'itemCostCurrency',
-            'taxRate', 'taxCode', 'rowNetValue', 'rowTaxValue',
-            'nominalCode', 'bundleParent', 'bundleChild', 'parentOrderRowId',
-            'productOptions'
-        ])
+
+    # Define the new column order and headers
+    columns = [
+        'Order ID', 'Order Type', 'Status', 'Payment Status', 'Item name', 'Order row SKU', 'Quantity', 'Invoice', 'Ref', 'Tax status', 'Date created', 'Currency', 'Exchange rate',
+        'Delivery name', 'Delivery company', 'Delivery street', 'Delivery suburb', 'Delivery city', 'Delivery state', 'Delivery postcode', 'Delivery country', 'Delivery telephone', 'Delivery mobile', 'Delivery email',
+        'Billing name', 'Billing company', 'Billing Street', 'Billing Suburb', 'Billing City', 'Billing State', 'Billing Postcode', 'Billing Country', 'Billing telephone', 'Billing mobile', 'Billing email',
+        'Contact ID', 'Product ID', 'Order list price',
+        'Row net', 'Row tax', 'Row gross',
+        'Item tax class', 'Tax Rate', 'Shipping Method Id', 'Stock Status Code', 'Allocation Status Code', 'Shipping Status Code'
+    ]
+
+    with open('exports/orders.csv', 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
-        
+
         for order in orders:
-            # Base order data that will be shared across all rows
+            # Extract invoice info (first invoice if present)
+            invoice = order.get('invoices', [{}])[0] if order.get('invoices') else {}
+            invoice_number = invoice.get('invoiceReference', '')
+            tax_date = invoice.get('taxDate', '')
+
+            # Base order data shared across all rows
             base_order = {
-                'orderId': order.get('id', ''),
-                'parentOrderId': order.get('parentOrderId', ''),
-                'orderTypeCode': order.get('orderTypeCode', ''),
-                'reference': order.get('reference', ''),
-                'orderStatusId': order.get('orderStatus', {}).get('orderStatusId', ''),
-                'orderStatusName': order.get('orderStatus', {}).get('name', ''),
-                'orderPaymentStatus': order.get('orderPaymentStatus', ''),
-                'stockStatusCode': order.get('stockStatusCode', ''),
-                'allocationStatusCode': order.get('allocationStatusCode', ''),
-                'shippingStatusCode': order.get('shippingStatusCode', ''),
-                'placedOn': order.get('placedOn', ''),
-                'createdOn': order.get('createdOn', ''),
-                'updatedOn': order.get('updatedOn', ''),
-                'closedOn': order.get('closedOn', ''),
-                'priceListId': order.get('priceListId', ''),
-                'priceModeCode': order.get('priceModeCode', ''),
-                'warehouseId': order.get('warehouseId', ''),
-                
-                # Currency
-                'accountingCurrencyCode': order.get('currency', {}).get('accountingCurrencyCode', ''),
-                'orderCurrencyCode': order.get('currency', {}).get('orderCurrencyCode', ''),
-                'exchangeRate': order.get('currency', {}).get('exchangeRate', ''),
-                
-                # Total value
-                'orderNetTotal': order.get('totalValue', {}).get('net', ''),
-                'orderTaxTotal': order.get('totalValue', {}).get('taxAmount', ''),
-                'orderTotal': order.get('totalValue', {}).get('total', ''),
-                
-                # Delivery
-                'deliveryDate': order.get('delivery', {}).get('deliveryDate', ''),
-                'shippingMethodId': order.get('delivery', {}).get('shippingMethodId', ''),
-                
-                # Assignment
-                'staffOwnerContactId': order.get('assignment', {}).get('current', {}).get('staffOwnerContactId', ''),
-                'projectId': order.get('assignment', {}).get('current', {}).get('projectId', ''),
-                'channelId': order.get('assignment', {}).get('current', {}).get('channelId', ''),
-                'leadSourceId': order.get('assignment', {}).get('current', {}).get('leadSourceId', ''),
-                'teamId': order.get('assignment', {}).get('current', {}).get('teamId', ''),
-                
-                # Parties - Supplier
-                'supplierContactId': order.get('parties', {}).get('supplier', {}).get('contactId', ''),
-                'supplierName': order.get('parties', {}).get('supplier', {}).get('addressFullName', ''),
-                'supplierCompany': order.get('parties', {}).get('supplier', {}).get('companyName', ''),
-                'supplierEmail': order.get('parties', {}).get('supplier', {}).get('email', ''),
-                'supplierPhone': order.get('parties', {}).get('supplier', {}).get('telephone', ''),
-                
-                # Parties - Delivery
-                'deliveryName': order.get('parties', {}).get('delivery', {}).get('addressFullName', ''),
-                'deliveryCompany': order.get('parties', {}).get('delivery', {}).get('companyName', ''),
-                'deliveryEmail': order.get('parties', {}).get('delivery', {}).get('email', ''),
-                'deliveryPhone': order.get('parties', {}).get('delivery', {}).get('telephone', ''),
-                'deliveryAddress1': order.get('parties', {}).get('delivery', {}).get('addressLine1', ''),
-                'deliveryAddress2': order.get('parties', {}).get('delivery', {}).get('addressLine2', ''),
-                'deliveryAddress3': order.get('parties', {}).get('delivery', {}).get('addressLine3', ''),
-                'deliveryAddress4': order.get('parties', {}).get('delivery', {}).get('addressLine4', ''),
-                'deliveryPostcode': order.get('parties', {}).get('delivery', {}).get('postalCode', ''),
-                'deliveryCountry': order.get('parties', {}).get('delivery', {}).get('country', ''),
-                
-                # Parties - Billing
-                'billingContactId': order.get('parties', {}).get('billing', {}).get('contactId', ''),
-                'billingName': order.get('parties', {}).get('billing', {}).get('addressFullName', ''),
-                'billingCompany': order.get('parties', {}).get('billing', {}).get('companyName', ''),
-                'billingEmail': order.get('parties', {}).get('billing', {}).get('email', ''),
-                'billingPhone': order.get('parties', {}).get('billing', {}).get('telephone', ''),
-                'billingAddress1': order.get('parties', {}).get('billing', {}).get('addressLine1', ''),
-                'billingAddress2': order.get('parties', {}).get('billing', {}).get('addressLine2', ''),
-                'billingAddress3': order.get('parties', {}).get('billing', {}).get('addressLine3', ''),
-                'billingAddress4': order.get('parties', {}).get('billing', {}).get('addressLine4', ''),
-                'billingPostcode': order.get('parties', {}).get('billing', {}).get('postalCode', ''),
-                'billingCountry': order.get('parties', {}).get('billing', {}).get('country', '')
+                'Order ID': order.get('id', ''),
+                'Order Type': order.get('orderTypeCode', ''),
+                'Status': order.get('orderStatus', {}).get('name', ''),
+                'Payment Status': order.get('orderPaymentStatus', ''),
+                'Ref': order.get('reference', ''),
+                'Tax status': order.get('state', {}).get('tax', ''),
+                'Date created': order.get('createdOn', ''),
+                'Currency': order.get('currency', {}).get('orderCurrencyCode', ''),
+                'Exchange rate': order.get('currency', {}).get('exchangeRate', ''),
+                'Invoice': invoice_number,
+                'Tax date': tax_date,
+                'Delivery name': order.get('parties', {}).get('delivery', {}).get('addressFullName', ''),
+                'Delivery company': order.get('parties', {}).get('delivery', {}).get('companyName', ''),
+                'Delivery street': order.get('parties', {}).get('delivery', {}).get('addressLine1', ''),
+                'Delivery suburb': order.get('parties', {}).get('delivery', {}).get('addressLine2', ''),
+                'Delivery city': order.get('parties', {}).get('delivery', {}).get('addressLine3', ''),
+                'Delivery state': order.get('parties', {}).get('delivery', {}).get('addressLine4', ''),
+                'Delivery postcode': order.get('parties', {}).get('delivery', {}).get('postalCode', ''),
+                'Delivery country': order.get('parties', {}).get('delivery', {}).get('country', ''),
+                'Delivery telephone': order.get('parties', {}).get('delivery', {}).get('telephone', ''),
+                'Delivery mobile': order.get('parties', {}).get('delivery', {}).get('mobileTelephone', ''),
+                'Delivery email': order.get('parties', {}).get('delivery', {}).get('email', ''),
+                'Billing name': order.get('parties', {}).get('billing', {}).get('addressFullName', ''),
+                'Billing company': order.get('parties', {}).get('billing', {}).get('companyName', ''),
+                'Billing Street': order.get('parties', {}).get('billing', {}).get('addressLine1', ''),
+                'Billing Suburb': order.get('parties', {}).get('billing', {}).get('addressLine2', ''),
+                'Billing City': order.get('parties', {}).get('billing', {}).get('addressLine3', ''),
+                'Billing State': order.get('parties', {}).get('billing', {}).get('addressLine4', ''),
+                'Billing Postcode': order.get('parties', {}).get('billing', {}).get('postalCode', ''),
+                'Billing Country': order.get('parties', {}).get('billing', {}).get('country', ''),
+                'Billing telephone': order.get('parties', {}).get('billing', {}).get('telephone', ''),
+                'Billing mobile': order.get('parties', {}).get('billing', {}).get('mobileTelephone', ''),
+                'Billing email': order.get('parties', {}).get('billing', {}).get('email', ''),
+                'Contact ID': order.get('parties', {}).get('billing', {}).get('contactId', ''),
             }
-            
-            # Write a row for each order line item
+
             order_rows = order.get('orderRows', {})
             for row_id, row in order_rows.items():
+                # Row-level values
+                product_price = row.get('productPrice', {})
+                row_value = row.get('rowValue', {})
+                row_net = row_value.get('rowNet', {})
+                row_tax = row_value.get('rowTax', {})
+                # EUR values (base values)
+                base_net = row_net.get('value', '') if row_net.get('currencyCode', '') == 'EUR' else ''
+                base_tax = row_tax.get('value', '') if row_tax.get('currencyCode', '') == 'EUR' else ''
+                base_gross = ''  # Not directly available, can be calculated if needed
+                # Item net (productPrice.value)
+                item_net = product_price.get('value', '')
+                # Item gross and item tax (not directly available, can be calculated if needed)
+                item_gross = ''
+                item_tax = ''
+                # EUR item net/gross/tax (not directly available, can be calculated if needed)
+                eur_item_net = item_net if product_price.get('currencyCode', '') == 'EUR' else ''
+                eur_item_gross = ''
+                eur_item_tax = ''
+                # Row gross (rowNet + rowTax)
+                try:
+                    row_gross = str(float(row_net.get('value', 0)) + float(row_tax.get('value', 0)))
+                except:
+                    row_gross = ''
+                eur_row_net = base_net
+                eur_row_tax = base_tax
+                try:
+                    eur_row_gross = str(float(eur_row_net or 0) + float(eur_row_tax or 0))
+                except:
+                    eur_row_gross = ''
+
                 order_row = base_order.copy()
-                # Add row-specific fields
                 order_row.update({
-                    'rowId': row_id,
-                    'rowSequence': row.get('orderRowSequence', ''),
-                    'productId': row.get('productId', ''),
-                    'productName': row.get('productName', ''),
-                    'productSku': row.get('productSku', ''),
-                    'quantity': row.get('quantity', {}).get('magnitude', ''),
-                    'itemCostValue': row.get('itemCost', {}).get('value', ''),
-                    'itemCostCurrency': row.get('itemCost', {}).get('currencyCode', ''),
-                    'taxRate': row.get('rowValue', {}).get('taxRate', ''),
-                    'taxCode': row.get('rowValue', {}).get('taxCode', ''),
-                    'rowNetValue': row.get('rowValue', {}).get('rowNet', {}).get('value', ''),
-                    'rowTaxValue': row.get('rowValue', {}).get('rowTax', {}).get('value', ''),
-                    'nominalCode': row.get('nominalCode', ''),
-                    'bundleParent': row.get('composition', {}).get('bundleParent', ''),
-                    'bundleChild': row.get('composition', {}).get('bundleChild', ''),
-                    'parentOrderRowId': row.get('composition', {}).get('parentOrderRowId', ''),
-                    'productOptions': str(row.get('productOptions', {}))
+                    'Item name': row.get('productName', ''),
+                    'Order row SKU': row.get('productSku', ''),
+                    'Quantity': row.get('quantity', {}).get('magnitude', ''),
+                    'Product ID': row.get('productId', ''),
+                    'Order list price': item_net,
+                    'Row net': row_net.get('value', ''),
+                    'Row tax': row_tax.get('value', ''),
+                    'Row gross': row_gross,
+                    'Item tax class': row_value.get('taxCode', ''),
+                    'Tax Rate': row_value.get('taxRate', ''),
+                    'Shipping Method Id': order.get('delivery', {}).get('shippingMethodId', ''),
+                    'Stock Status Code': order.get('stockStatusCode', ''),
+                    'Allocation Status Code': order.get('allocationStatusCode', ''),
+                    'Shipping Status Code': order.get('shippingStatusCode', ''),
+                    'Invoice': invoice_number,
+                    'Tax date': tax_date,
+                    'Billing mobile': order.get('parties', {}).get('billing', {}).get('mobileTelephone', ''),
                 })
-                
-                # Ensure all values are encoded as UTF-8 strings
-                encoded_row = {}
-                for key, value in order_row.items():
-                    if isinstance(value, unicode):
-                        encoded_row[key] = value.encode('utf-8')
-                    else:
-                        encoded_row[key] = str(value)
-                writer.writerow(encoded_row)
+                # Remove columns not in the new columns list
+                filtered_row = {col: order_row.get(col, '') for col in columns}
+                writer.writerow(filtered_row)
 
 def main():
     # For testing - set to 0 for unlimited orders
-    TEST_LIMIT = 4
+    TEST_LIMIT = 10
     
     print("\n{} Starting orders export...".format(INDICATORS['info']))
     order_ids = get_orders(department_id=11)
