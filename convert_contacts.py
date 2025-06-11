@@ -301,24 +301,31 @@ def main():
     rows = []
     customers = []
     processed_emails = set()  # To track unique customers
+    
+    # Collect all shipping and billing addresses to normalize in batch
+    all_ship_addrs = []
+    all_bill_addrs = []
+    ship_addr_refs = []  # (row_idx, addr_dict)
+    bill_addr_refs = []
+    print("[INFO] Building output rows and collecting addresses for normalization...")
 
     for company in companies:
         company_id = company.get('companyId','')
         company_name = company.get('companyName','')
         company_contacts = contacts_by_company.get(company_id, [])
-        
+        # If company_name is empty, use the name from the main contact (contactId == companyId)
         if not company_name:
             main_contact = next((c for c in company_contacts if c.get('contactId','') == company_id), None)
             if main_contact:
                 company_name = main_contact.get('name','')
-                
+        
         for contact in company_contacts:
             contact_id = contact.get('contactId','')
             contact_name = contact.get('name','')
             contact_email = contact.get('email','')
             contact_phone = contact.get('phone','')
             wholesale = contact.get('Wholesale','')
-            
+
             # Add customer if email not processed yet
             if contact_email and contact_email not in processed_emails:
                 cust_first, cust_last = split_name(contact_name)
@@ -333,8 +340,9 @@ def main():
                 })
                 processed_emails.add(contact_email)
 
-            # Process addresses and create company rows as before
+            # Find all delivery addresses for this contact
             delivery_addrs = [a for a in addresses_by_contact.get(contact_id, []) if a.get('isDelivery','').upper() == 'TRUE']
+            # Deduplicate by normalized addressLine1
             seen = set()
             unique_delivery_addrs = []
             for addr in delivery_addrs:
@@ -342,7 +350,7 @@ def main():
                 if norm and norm not in seen:
                     seen.add(norm)
                     unique_delivery_addrs.append(addr)
-            
+            # Find first billing address for this contact
             billing_addr = next((a for a in addresses_by_contact.get(contact_id, []) if a.get('isBilling','').upper() == 'TRUE'), None)
             
             for ship_addr in unique_delivery_addrs:
@@ -353,7 +361,7 @@ def main():
                     bill_addr_refs.append((len(rows), billing_addr))
                 else:
                     bill_addr_refs.append((len(rows), None))
-
+                # Build row with placeholders for city/province
                 ship_first, ship_last = split_name(contact_name)
                 ship_recipient = company_name
                 ship_phone = contact_phone
@@ -423,8 +431,26 @@ def main():
                 }
                 rows.append(row)
 
-    # Process addresses with LLM
-    # ... [rest of the address normalization code remains the same] ...
+    print(f"[INFO] Collected {len(all_ship_addrs)} shipping and {len(all_bill_addrs)} billing addresses for normalization.")
+    # Batch normalize shipping addresses
+    for i in range(0, len(all_ship_addrs), BATCH_SIZE):
+        batch = all_ship_addrs[i:i+BATCH_SIZE]
+        print(f"[LLM] Normalizing shipping addresses {i+1}-{i+len(batch)}...")
+        results = normalize_addresses_llm_batch(batch, 'shipping')
+        for j, (city, prov) in enumerate(results):
+            row_idx, _ = ship_addr_refs[i+j]
+            rows[row_idx]['Location: Shipping City'] = city
+            rows[row_idx]['Location: Shipping Province Code'] = prov
+    # Batch normalize billing addresses
+    for i in range(0, len(all_bill_addrs), BATCH_SIZE):
+        batch = all_bill_addrs[i:i+BATCH_SIZE]
+        print(f"[LLM] Normalizing billing addresses {i+1}-{i+len(batch)}...")
+        results = normalize_addresses_llm_batch(batch, 'billing')
+        for j, (city, prov) in enumerate(results):
+            row_idx, _ = bill_addr_refs[i+j]
+            if bill_addr_refs[i+j][1] is not None:
+                rows[row_idx]['Location: Billing City'] = city
+                rows[row_idx]['Location: Billing Province Code'] = prov
 
     print(f"[INFO] Writing {len(rows)} rows to {OUTPUT_CSV}")
     with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8') as f:
