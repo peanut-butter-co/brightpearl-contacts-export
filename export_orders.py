@@ -47,44 +47,40 @@ INDICATORS = {
 
 def make_request(url, headers, params=None):
     """
-    Make a rate-limited request with retries
+    Make a rate-limited request with retries, including exponential backoff for 429 and 503 errors
     """
-    start_time = time.time()
-    for attempt in range(MAX_RETRIES):
+    max_retries = 5
+    delay = REQUEST_DELAY
+    for attempt in range(max_retries):
         try:
-            time.sleep(REQUEST_DELAY)  # Rate limiting delay
+            time.sleep(delay)
             resp = requests.get(url, headers=headers, params=params)
             resp.raise_for_status()
-            elapsed = time.time() - start_time
-            if elapsed > 5:  # Log if request takes more than 5 seconds
-                print("{} API request took {:.1f}s: {}".format(
-                    INDICATORS['warning'],
-                    elapsed,
-                    url
-                ))
             return resp
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:  # Too Many Requests
-                if attempt < MAX_RETRIES - 1:  # Don't sleep on last attempt
-                    print("{} Rate limit hit, waiting {} seconds...".format(
-                        INDICATORS['warning'],
-                        RETRY_DELAY
+            status = e.response.status_code
+            if status in (429, 503):
+                if attempt < max_retries - 1:
+                    print("{} {} error on {} (attempt {}/{}), waiting {} seconds...".format(
+                        INDICATORS['warning'], status, url, attempt + 1, max_retries, delay * 2
                     ))
-                    time.sleep(RETRY_DELAY)
+                    time.sleep(delay * 2)
+                    delay *= 2
                     continue
             print("{} HTTP error on {}: {}".format(
                 INDICATORS['error'],
                 url,
                 str(e)
             ))
-            raise
+            return None
         except Exception as e:
             print("{} Request error on {}: {}".format(
                 INDICATORS['error'],
                 url,
                 str(e)
             ))
-            raise
+            return None
+    print("{} Max retries exceeded for {}".format(INDICATORS['error'], url))
     return None
 
 def get_orders(department_id=11):

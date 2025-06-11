@@ -1,3 +1,5 @@
 .env
 exports/*.csv
 example.json
+shopify-companies-example.csv
+.DS_Store
