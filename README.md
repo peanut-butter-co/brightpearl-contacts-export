@@ -105,6 +105,102 @@ Displays comprehensive order information including:
 - All order rows (products, quantities, values)
 - Custom fields if present
 
+### convert_contacts.py
+
+This script converts exported Brightpearl contact data into Shopify B2B format. It processes companies, contacts, and addresses, and includes special handling for:
+
+- European province codes (e.g., Spanish provinces like "M" for Madrid)
+- US state codes (e.g., "NY" for New York)
+- Spanish postal codes (automatically normalized to 5 digits)
+- Multiple addresses per contact
+- Company and contact relationships
+
+#### Prerequisites
+
+1. Python 3.x
+2. Required Python packages (install via pip):
+   ```bash
+   pip install openai python-dotenv
+   ```
+
+3. OpenAI API key:
+   - Create a `.env` file in the script directory
+   - Add your OpenAI API key:
+     ```
+     OPENAI_API_KEY=your-api-key-here
+     ```
+
+#### Input Files
+
+Place the following CSV files in an `exports` directory:
+
+1. `companies.csv` - Company information
+2. `contacts.csv` - Contact details including custom fields
+3. `addresses.csv` - Address information
+
+#### Usage
+
+1. Ensure your input files are in the `exports` directory
+2. Run the script:
+   ```bash
+   python convert_contacts.py
+   ```
+3. The converted file will be created in the `converted` directory as `companies.csv`
+
+#### Output Format
+
+The script generates a Shopify B2B compatible CSV file with the following features:
+
+- One row per unique shipping address
+- Normalized city names and province/state codes
+- Properly formatted Spanish postal codes (5 digits)
+- Correct mapping of European province and US state codes
+- Company and contact relationships preserved
+- Custom fields included (e.g., Wholesale status)
+
+#### Field Mapping
+
+The output CSV includes the following Shopify B2B fields:
+
+- Company Information:
+  - Name
+  - Command
+  - Main Contact: Customer ID
+
+- Location Information:
+  - Name
+  - Command
+  - Phone
+  - Tax Settings
+  - Shipping/Billing Details
+
+- Customer Information:
+  - Email
+  - First/Last Name
+  - Location Role
+
+- Metafields:
+  - brightpearl.contact_id
+  - brightpearl.wholesale
+
+#### Error Handling
+
+The script includes robust error handling for:
+- Missing or invalid input files
+- API rate limits
+- JSON parsing errors
+- Address normalization issues
+
+If the OpenAI API is unavailable or rate-limited, the script will fall back to using original address data.
+
+#### Notes
+
+- Spanish postal codes are automatically padded with leading zeros if needed (e.g., "8700" → "08700")
+- Province codes are normalized to remove country prefixes (e.g., "ES-M" → "M")
+- The script uses GPT-3.5 Turbo for address normalization
+- Multiple retries are implemented for API calls
+- Batch processing is used to optimize API usage
+
 ## Error Handling
 
 All scripts include:

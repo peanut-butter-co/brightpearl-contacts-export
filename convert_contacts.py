@@ -34,53 +34,185 @@ COMPANIES_COLUMNS = ['companyId', 'companyName', 'email', 'phone', 'website', 'i
 CONTACTS_COLUMNS = ['contactId', 'isPrimaryContact', 'name', 'email', 'phone', 'tagList', 'companyId', 'Wholesale', 'Joor Account Code']
 ADDRESSES_COLUMNS = ['contactId', 'addressId', 'isBilling', 'isDelivery', 'isDefault', 'addressLine1', 'addressLine2', 'addressLine3', 'addressLine4', 'city', 'postcode', 'country']
 
-# Mapping of 3-letter to 2-letter country codes for European countries
+# Mapping of 3-letter to 2-letter country codes for European countries and US
 EU_COUNTRY_CODES = {
     'ESP': 'ES', 'FRA': 'FR', 'DEU': 'DE', 'ITA': 'IT', 'PRT': 'PT', 'NLD': 'NL', 'BEL': 'BE', 'GBR': 'GB', 'IRL': 'IE',
     'CHE': 'CH', 'AUT': 'AT', 'SWE': 'SE', 'NOR': 'NO', 'DNK': 'DK', 'FIN': 'FI', 'POL': 'PL', 'CZE': 'CZ', 'SVK': 'SK',
     'HUN': 'HU', 'ROU': 'RO', 'BGR': 'BG', 'HRV': 'HR', 'SVN': 'SI', 'EST': 'EE', 'LVA': 'LV', 'LTU': 'LT', 'GRC': 'GR',
-    'CYP': 'CY', 'MLT': 'MT', 'LUX': 'LU', 'ISL': 'IS', 'LIE': 'LI'
+    'CYP': 'CY', 'MLT': 'MT', 'LUX': 'LU', 'ISL': 'IS', 'LIE': 'LI',
+    'USA': 'US', 'GUM': 'GU', 'PRI': 'PR', 'VIR': 'VI', 'ASM': 'AS', 'MNP': 'MP'  # US and territories
+}
+
+# US State codes mapping
+US_STATE_CODES = {
+    'ALABAMA': 'AL', 'ALASKA': 'AK', 'ARIZONA': 'AZ', 'ARKANSAS': 'AR', 'CALIFORNIA': 'CA',
+    'COLORADO': 'CO', 'CONNECTICUT': 'CT', 'DELAWARE': 'DE', 'FLORIDA': 'FL', 'GEORGIA': 'GA',
+    'HAWAII': 'HI', 'IDAHO': 'ID', 'ILLINOIS': 'IL', 'INDIANA': 'IN', 'IOWA': 'IA',
+    'KANSAS': 'KS', 'KENTUCKY': 'KY', 'LOUISIANA': 'LA', 'MAINE': 'ME', 'MARYLAND': 'MD',
+    'MASSACHUSETTS': 'MA', 'MICHIGAN': 'MI', 'MINNESOTA': 'MN', 'MISSISSIPPI': 'MS', 'MISSOURI': 'MO',
+    'MONTANA': 'MT', 'NEBRASKA': 'NE', 'NEVADA': 'NV', 'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ',
+    'NEW MEXICO': 'NM', 'NEW YORK': 'NY', 'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND', 'OHIO': 'OH',
+    'OKLAHOMA': 'OK', 'OREGON': 'OR', 'PENNSYLVANIA': 'PA', 'RHODE ISLAND': 'RI', 'SOUTH CAROLINA': 'SC',
+    'SOUTH DAKOTA': 'SD', 'TENNESSEE': 'TN', 'TEXAS': 'TX', 'UTAH': 'UT', 'VERMONT': 'VT',
+    'VIRGINIA': 'VA', 'WASHINGTON': 'WA', 'WEST VIRGINIA': 'WV', 'WISCONSIN': 'WI', 'WYOMING': 'WY',
+    'DISTRICT OF COLUMBIA': 'DC', 'AMERICAN SAMOA': 'AS', 'GUAM': 'GU', 'NORTHERN MARIANA ISLANDS': 'MP',
+    'PUERTO RICO': 'PR', 'VIRGIN ISLANDS': 'VI'
 }
 
 BATCH_SIZE = 10
 
+def strip_country_prefix(province_code):
+    """Strip country prefix from province codes (e.g., 'ES-M' becomes 'M')"""
+    if not province_code:
+        return ''
+    parts = province_code.split('-')
+    return parts[-1] if len(parts) > 1 else province_code
+
 def normalize_addresses_llm_batch(addresses, address_type):
     if not OPENAI_API_KEY or not addresses:
-        # Fallback: return original city and province
         return [(
             a.get('city', ''),
             a.get('addressLine4') or a.get('addressLine3', '')
         ) for a in addresses]
-    prompt = f"""
-For each of the following {address_type} addresses from a European country, return the corrected city name and the ISO 3166-2 province-level code (not autonomous community or region). For example, return ES-M for Madrid, not ES-MD. Respond as a JSON array of objects, each with 'city' and 'province_code'.
+    prompt = f"""You are a JSON-only response API. Your task is to normalize addresses and return them in a specific JSON array format.
 
-Addresses:
+For the following {len(addresses)} addresses, create a JSON array where each item contains the normalized city name and province/state code.
+
+Rules:
+1. For European addresses: Use province codes without country prefix (e.g., "M" for Madrid, not "ES-M")
+2. For US addresses: Use standard two-letter state codes (e.g., "NY" for New York)
+3. Return ONLY a JSON array with exactly {len(addresses)} items
+4. Each item must have exactly two fields: "city" and "province_code"
+5. Do not include any explanation, numbering, or additional text
+6. Use the provided postal code to help determine the correct province/state
+
+Required JSON format:
+[
+  {{"city": "Madrid", "province_code": "M"}},
+  {{"city": "New York", "province_code": "NY"}}
+]
+
+Input addresses:
 """
     for idx, a in enumerate(addresses, 1):
-        prompt += f"{idx}. Address Line 1: {a.get('addressLine1','')}, Address Line 2: {a.get('addressLine2','')}, City: {a.get('city','')}, Province: {a.get('addressLine4') or a.get('addressLine3','')}, Postcode: {a.get('postcode','')}, Country: {a.get('country','')}\n"
-    prompt += "\nExample response: [{\"city\":\"Barcelona\",\"province_code\":\"ES-B\"}, ...]"
+        normalized_postcode = normalize_spanish_postal_code(a.get('postcode', ''), a.get('country', ''))
+        prompt += f"{idx}. Address Line 1: {a.get('addressLine1','')}, Address Line 2: {a.get('addressLine2','')}, City: {a.get('city','')}, Province/State: {a.get('addressLine4') or a.get('addressLine3','')}, Postcode: {normalized_postcode}, Country: {a.get('country','')}\n"
+
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0
             )
             content = response.choices[0].message.content
+            if not content.strip():
+                print(f"[LLM] Warning: Empty response received on attempt {attempt + 1}")
+                raise ValueError("Empty response from API")
+            
+            print(f"[DEBUG] Raw API response content: {content[:200]}...")
+            
+            # Try to clean the response if it's not pure JSON
+            content = content.strip()
+            if not (content.startswith('[') and content.endswith(']')):
+                # Try to find JSON array within the response
+                start = content.find('[')
+                end = content.rfind(']')
+                if start != -1 and end != -1:
+                    content = content[start:end+1]
+                    print(f"[DEBUG] Extracted JSON array: {content[:200]}...")
+            
             import json
             data = json.loads(content)
             if isinstance(data, list) and len(data) == len(addresses):
                 return [(
                     item.get('city', addresses[i].get('city','')),
-                    item.get('province_code', addresses[i].get('addressLine4') or addresses[i].get('addressLine3',''))
+                    strip_country_prefix(item.get('province_code', addresses[i].get('addressLine4') or addresses[i].get('addressLine3','')))
                 ) for i, item in enumerate(data)]
+            else:
+                print(f"[LLM] Warning: Response length mismatch. Expected {len(addresses)}, got {len(data) if isinstance(data, list) else 'non-list'}")
+                raise ValueError("Response length mismatch")
+        except openai.RateLimitError as e:
+            print(f"[LLM] Rate limit exceeded, falling back to basic address handling: {str(e)}")
+            return [(
+                a.get('city', ''),
+                a.get('addressLine4') or a.get('addressLine3', '')
+            ) for a in addresses]
+        except json.JSONDecodeError as e:
+            print(f"[LLM] JSON decode error in batch {address_type} normalization (attempt {attempt + 1}/3): {str(e)}. Position: {e.pos}, Line: {e.lineno}, Column: {e.colno}")
+            time.sleep(2)
         except Exception as e:
-            print(f"[LLM] Error in batch {address_type} normalization: {str(e)}. Retrying... Error type: {type(e).__name__}")
+            print(f"[LLM] Error in batch {address_type} normalization (attempt {attempt + 1}/3): {str(e)}. Error type: {type(e).__name__}. Retrying...")
             time.sleep(2)
     # Fallback: single requests
-    print(f"[LLM] Batch failed, falling back to single {address_type} requests.")
+    print(f"[LLM] Batch failed after 3 attempts, falling back to single {address_type} requests.")
     return [normalize_address_llm(a, address_type) for a in addresses]
+
+def normalize_address_llm(address_dict, address_type):
+    if not OPENAI_API_KEY:
+        return address_dict.get('city', ''), address_dict.get('addressLine4') or address_dict.get('addressLine3', '')
+    prompt = f"""You are a JSON-only response API. Your task is to normalize a single address and return it in a specific JSON format.
+
+Rules:
+1. For European addresses: Use province code without country prefix (e.g., "M" for Madrid, not "ES-M")
+2. For US addresses: Use standard two-letter state code (e.g., "NY" for New York)
+3. Return ONLY a single JSON object
+4. The object must have exactly two fields: "city" and "province_code"
+5. Do not include any explanation or additional text
+6. Use the provided postal code to help determine the correct province/state
+
+Required JSON format:
+{{"city": "Madrid", "province_code": "M"}}
+
+Input address:
+Address Line 1: {address_dict.get('addressLine1','')}
+Address Line 2: {address_dict.get('addressLine2','')}
+City: {address_dict.get('city','')}
+Province/State: {address_dict.get('addressLine4') or address_dict.get('addressLine3','')}
+Postcode: {normalize_spanish_postal_code(address_dict.get('postcode', ''), address_dict.get('country', ''))}
+Country: {address_dict.get('country','')}"""
+
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0
+            )
+            content = response.choices[0].message.content
+            if not content.strip():
+                print(f"[LLM] Warning: Empty response received on attempt {attempt + 1}")
+                raise ValueError("Empty response from API")
+            
+            print(f"[DEBUG] Raw API response content: {content[:200]}...")
+            
+            # Try to clean the response if it's not pure JSON
+            content = content.strip()
+            if not (content.startswith('{') and content.endswith('}')):
+                # Try to find JSON object within the response
+                start = content.find('{')
+                end = content.rfind('}')
+                if start != -1 and end != -1:
+                    content = content[start:end+1]
+                    print(f"[DEBUG] Extracted JSON object: {content[:200]}...")
+            
+            import json
+            data = json.loads(content)
+            return data.get('city', address_dict.get('city','')), strip_country_prefix(data.get('province_code', address_dict.get('addressLine4') or address_dict.get('addressLine3','')))
+        except openai.RateLimitError as e:
+            print(f"[LLM] Rate limit exceeded, falling back to basic address handling: {str(e)}")
+            return address_dict.get('city', ''), address_dict.get('addressLine4') or address_dict.get('addressLine3', '')
+        except json.JSONDecodeError as e:
+            print(f"[LLM] JSON decode error in {address_type} address normalization (attempt {attempt + 1}/3): {str(e)}. Position: {e.pos}, Line: {e.lineno}, Column: {e.colno}")
+            time.sleep(2)
+        except Exception as e:
+            print(f"[LLM] Error normalizing {address_type} address (attempt {attempt + 1}/3): {str(e)}. Error type: {type(e).__name__}. Retrying...")
+            time.sleep(2)
+    # Fallback to original after all retries
+    print(f"[LLM] Single address normalization failed after 3 attempts, using original values.")
+    return address_dict.get('city', ''), address_dict.get('addressLine4') or address_dict.get('addressLine3', '')
 
 def ensure_csv_exists(path, columns):
     if not os.path.exists(path):
@@ -114,46 +246,30 @@ def convert_country_code(code):
     code = (code or '').strip().upper()
     if len(code) == 3 and code in EU_COUNTRY_CODES:
         return EU_COUNTRY_CODES[code]
-    return code if len(code) == 2 else ''
+    elif len(code) == 2:
+        return code
+    # Try to match US state code
+    state_code = US_STATE_CODES.get(code.upper())
+    if state_code:
+        return state_code
+    return ''
 
-# Single-address LLM normalization function for fallback
-
-def normalize_address_llm(address_dict, address_type):
-    if not OPENAI_API_KEY:
-        return address_dict.get('city', ''), address_dict.get('addressLine4') or address_dict.get('addressLine3', '')
-    prompt = f"""
-Given the following {address_type} address from a European country return:
-- The corrected city name (if needed)
-- The ISO 3166-2 province-level code (not autonomous community or region). For example, return ES-M for Madrid, not ES-MD.
-
-Address:
-Address Line 1: {address_dict.get('addressLine1','')}
-Address Line 2: {address_dict.get('addressLine2','')}
-City: {address_dict.get('city','')}
-Province: {address_dict.get('addressLine4') or address_dict.get('addressLine3','')}
-Postcode: {address_dict.get('postcode','')}
-Country: {address_dict.get('country','')}
-
-Respond in JSON like this:
-{{"city": "<corrected_city>", "province_code": "<iso_code>"}}
-"""
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
-    for attempt in range(3):
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0
-            )
-            content = response.choices[0].message.content
-            import json
-            data = json.loads(content)
-            return data.get('city', address_dict.get('city','')), data.get('province_code', address_dict.get('addressLine4') or address_dict.get('addressLine3',''))
-        except Exception as e:
-            print(f"[LLM] Error normalizing {address_type} address (single): {str(e)}. Error type: {type(e).__name__}. Retrying...")
-            time.sleep(2)
-    # Fallback to original
-    return address_dict.get('city', ''), address_dict.get('addressLine4') or address_dict.get('addressLine3', '')
+def normalize_spanish_postal_code(postcode, country):
+    """Normalize Spanish postal codes to ensure 5 digits"""
+    if not postcode or not country:
+        return postcode
+    
+    # Check if it's a Spanish address (either ESP or ES)
+    if country.upper() not in ['ESP', 'ES']:
+        return postcode
+        
+    # Remove any non-digit characters
+    digits = ''.join(c for c in str(postcode) if c.isdigit())
+    if not digits:
+        return postcode
+        
+    # If less than 5 digits, pad with leading zeros
+    return digits.zfill(5)
 
 def main():
     print("[INFO] Starting conversion...")
@@ -172,6 +288,8 @@ def main():
     # Index addresses by contactId
     addresses_by_contact = defaultdict(list)
     for a in addresses:
+        # Normalize Spanish postal codes before adding to the index
+        a['postcode'] = normalize_spanish_postal_code(a.get('postcode', ''), a.get('country', ''))
         addresses_by_contact[a.get('contactId','')].append(a)
 
     rows = []
