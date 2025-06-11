@@ -9,8 +9,8 @@ import time
 from typing import List, Dict, Any, Optional
 
 # Set default encoding to UTF-8 for Python 2 compatibility
-reload(sys)
-sys.setdefaultencoding('utf8')
+# reload(sys)
+# sys.setdefaultencoding('utf8')
 
 load_dotenv()
 
@@ -160,36 +160,25 @@ def get_contacts_with_tag(tag_name):
     return all_contact_ids
 
 def get_contact_details(contact_id):
-    url = "{}/contact-service/contact-search".format(BASE_URL)
-    params = {
-        "contactId": contact_id,
-        "firstResult": 1,
-        "maxResults": 1
-    }
+    url = "{}/contact-service/contact/{}".format(BASE_URL, contact_id)
+    params = {"includeOptional": "customFields"}
     try:
-        resp = make_request(url, HEADERS, params)
+        resp = make_request(url, HEADERS, params=params)
         if not resp:
             return None
         data = resp.json()
-        results = data.get('response', {}).get('results', [])
-        if results and len(results) > 0:
-            contact_data = results[0]
-            contact = {
-                'contactId': contact_data[0],
-                'email': contact_data[1] or '',  # primaryEmail
-                'firstName': contact_data[4] or '',
-                'lastName': contact_data[5] or '',
-                'isSupplier': contact_data[6],
-                'companyName': contact_data[7] or '',
-                'isStaff': contact_data[8],
-                'isCustomer': contact_data[9],
-                'phone': contact_data[16] or '',  # pri (primary phone)
-                'mobile': contact_data[18] or '',  # mob (mobile phone)
-            }
-            return contact
-        else:
+        contact = data.get('response', [])[0] if data.get('response') else None
+        if not contact:
             print("No data found for contact ID: {}".format(contact_id))
             return None
+        # Extract custom fields
+        custom_fields = contact.get('customFields', {})
+        wholesale = custom_fields.get('PCF_CUSTWHOL', None)
+        joor_account_code = custom_fields.get('PCF_JOORACCO', None)
+        # Add to contact dict for export
+        contact['Wholesale'] = wholesale
+        contact['Joor Account Code'] = joor_account_code
+        return contact
     except Exception as e:
         print("Error fetching contact {} details:".format(contact_id), e)
         return None
@@ -304,26 +293,31 @@ def get_company_details(contact_id):
 def write_contacts_csv(contacts):
     if not os.path.exists('exports'):
         os.makedirs('exports')
-    with open('exports/contacts.csv', 'wb') as f:
+    with open('exports/contacts.csv', 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=[
-            'contactId', 'name', 'email', 'phone', 'tagList', 'companyId'
+            'contactId', 'name', 'email', 'phone', 'tagList', 'companyId', 'Wholesale', 'Joor Account Code'
         ])
         writer.writeheader()
         for c in contacts:
             # Ensure all values are encoded as UTF-8 strings
             row = {}
             for key, value in c.items():
-                if isinstance(value, unicode):
-                    row[key] = value.encode('utf-8')
+                if isinstance(value, str):
+                    row[key] = value
+                elif value is None:
+                    row[key] = ''
                 else:
                     row[key] = str(value)
+            # Ensure both new columns are present
+            row['Wholesale'] = c.get('Wholesale', '')
+            row['Joor Account Code'] = c.get('Joor Account Code', '')
             writer.writerow(row)
 
 def write_addresses_csv(addresses):
     if not os.path.exists('exports'):
         os.makedirs('exports')
     
-    with open('exports/addresses.csv', 'wb') as f:
+    with open('exports/addresses.csv', 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=[
             'contactId', 'addressId', 'isBilling', 'isDelivery', 'isDefault',
             'addressLine1', 'addressLine2', 'addressLine3', 'addressLine4',
@@ -353,8 +347,8 @@ def write_addresses_csv(addresses):
             # Ensure all values are encoded as UTF-8 strings
             encoded_row = {}
             for key, value in row.items():
-                if isinstance(value, unicode):
-                    encoded_row[key] = value.encode('utf-8')
+                if value is None:
+                    encoded_row[key] = ''
                 else:
                     encoded_row[key] = str(value)
             writer.writerow(encoded_row)
@@ -363,7 +357,7 @@ def write_companies_csv(companies):
     if not os.path.exists('exports'):
         os.makedirs('exports')
     
-    with open('exports/companies.csv', 'wb') as f:
+    with open('exports/companies.csv', 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=[
             'companyId', 'companyName', 'email', 'phone', 'website'
         ])
@@ -372,8 +366,8 @@ def write_companies_csv(companies):
             # Ensure all values are encoded as UTF-8 strings
             row = {}
             for key, value in c.items():
-                if isinstance(value, unicode):
-                    row[key] = value.encode('utf-8')
+                if value is None:
+                    row[key] = ''
                 else:
                     row[key] = str(value)
             writer.writerow(row)
@@ -419,9 +413,20 @@ def main():
                 continue
             
             # Contact basic info
+            # Extract email and phone robustly from communication
+            communication = contact.get('communication', {})
+            emails = communication.get('emails', {})
+            primary_email = emails.get('PRI', {})
+            if isinstance(primary_email, dict):
+                email = primary_email.get('email', '')
+            else:
+                email = ''
+            telephones = communication.get('telephones', {})
+            phone = telephones.get('PRI', '') or telephones.get('MOB', '')
+
             name = u'{} {}'.format(
-                contact['firstName'] or '',
-                contact['lastName'] or ''
+                contact.get('firstName', '') or '',
+                contact.get('lastName', '') or ''
             ).strip()
             
             # Get company details if we haven't seen this company before
@@ -429,12 +434,14 @@ def main():
             company_id = company['companyId'] if company else ''
             
             contact_row = {
-                'contactId': contact['contactId'],
+                'contactId': contact.get('contactId', ''),
                 'name': name,
-                'email': contact['email'],
-                'phone': contact['phone'] or contact['mobile'],
+                'email': email,
+                'phone': phone,
                 'tagList': '',
-                'companyId': company_id
+                'companyId': company_id,
+                'Wholesale': contact.get('Wholesale', ''),
+                'Joor Account Code': contact.get('Joor Account Code', '')
             }
             contacts_csv.append(contact_row)
             

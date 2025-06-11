@@ -284,7 +284,7 @@ def write_orders_csv(orders):
 
 def main():
     # For testing - set to 0 for unlimited orders
-    TEST_LIMIT = 10
+    TEST_LIMIT = 0
     
     print("\n{} Starting orders export...".format(INDICATORS['info']))
     order_ids = get_orders(department_id=11)
