@@ -282,6 +282,7 @@ def get_company_details(contact_id):
         currencyId = financial.get('currencyId', '')
         discountPercentage = financial.get('discountPercentage', '')
         creditTermTypeId = financial.get('creditTermTypeId', '')
+        taxNumber = financial.get('taxNumber', '')
 
         company = {
             'companyId': org.get('organisationId', ''),
@@ -296,7 +297,8 @@ def get_company_details(contact_id):
             'creditTermDays': creditTermDays,
             'currencyId': currencyId,
             'discountPercentage': discountPercentage,
-            'creditTermTypeId': creditTermTypeId
+            'creditTermTypeId': creditTermTypeId,
+            'taxNumber': taxNumber
         }
         return company
     except Exception as e:
@@ -374,7 +376,7 @@ def write_companies_csv(companies):
     with open('exports/companies.csv', 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=[
             'companyId', 'companyName', 'email', 'phone', 'website',
-            'isPrimaryContact', 'priceListId', 'nominalCode', 'taxCodeId', 'creditTermDays', 'currencyId', 'discountPercentage', 'creditTermTypeId'
+            'isPrimaryContact', 'priceListId', 'nominalCode', 'taxCodeId', 'creditTermDays', 'currencyId', 'discountPercentage', 'creditTermTypeId', 'taxNumber'
         ])
         writer.writeheader()
         for c in companies:
