@@ -247,9 +247,7 @@ def get_company_details(contact_id):
 
         # Extract organization details
         org = contact.get('organisation', {})
-        if not org or org.get('organisationId', 0) == 0:
-            return None
-
+        
         # Get communication details
         communication = contact.get('communication', {})
         emails = communication.get('emails', {})
@@ -284,22 +282,45 @@ def get_company_details(contact_id):
         creditTermTypeId = financial.get('creditTermTypeId', '')
         taxNumber = financial.get('taxNumber', '')
 
-        company = {
-            'companyId': org.get('organisationId', ''),
-            'companyName': org.get('name', ''),
-            'email': email,
-            'phone': phone,
-            'website': website,
-            'isPrimaryContact': contact.get('isPrimaryContact', ''),
-            'priceListId': priceListId,
-            'nominalCode': nominalCode,
-            'taxCodeId': taxCodeId,
-            'creditTermDays': creditTermDays,
-            'currencyId': currencyId,
-            'discountPercentage': discountPercentage,
-            'creditTermTypeId': creditTermTypeId,
-            'taxNumber': taxNumber
-        }
+        # If no organization or organizationId is 0, use contact name as company name
+        if not org or org.get('organisationId', 0) == 0:
+            name = u'{} {}'.format(
+                contact.get('firstName', '') or '',
+                contact.get('lastName', '') or ''
+            ).strip()
+            company = {
+                'companyId': contact.get('contactId', ''),  # Use contact ID as company ID
+                'companyName': name,
+                'email': email,
+                'phone': phone,
+                'website': website,
+                'isPrimaryContact': contact.get('isPrimaryContact', ''),
+                'priceListId': priceListId,
+                'nominalCode': nominalCode,
+                'taxCodeId': taxCodeId,
+                'creditTermDays': creditTermDays,
+                'currencyId': currencyId,
+                'discountPercentage': discountPercentage,
+                'creditTermTypeId': creditTermTypeId,
+                'taxNumber': taxNumber
+            }
+        else:
+            company = {
+                'companyId': org.get('organisationId', ''),
+                'companyName': org.get('name', ''),
+                'email': email,
+                'phone': phone,
+                'website': website,
+                'isPrimaryContact': contact.get('isPrimaryContact', ''),
+                'priceListId': priceListId,
+                'nominalCode': nominalCode,
+                'taxCodeId': taxCodeId,
+                'creditTermDays': creditTermDays,
+                'currencyId': currencyId,
+                'discountPercentage': discountPercentage,
+                'creditTermTypeId': creditTermTypeId,
+                'taxNumber': taxNumber
+            }
         return company
     except Exception as e:
         print("{} Error fetching company details for contact {}: {}".format(INDICATORS['error'], contact_id, str(e)))
@@ -402,6 +423,11 @@ def main():
     # For testing - set to 0 for unlimited contacts
     TEST_LIMIT = 0
     
+    contacts_csv = []
+    addresses_csv = []
+    companies_csv = []
+    company_ids_seen = set()
+    
     print("\n{} Starting B2B contacts export...".format(INDICATORS['info']))
     contact_ids = get_contacts_with_tag('B2B')
     if TEST_LIMIT:
@@ -413,13 +439,33 @@ def main():
             original_count
         ))
     else:
-        print("\n{} Processing all {} contacts\n".format(INDICATORS['info'], len(contact_ids)))
+        print("\n{} Processing all {} B2B contacts\n".format(INDICATORS['info'], len(contact_ids)))
     
-    contacts_csv = []
-    addresses_csv = []
-    companies_csv = []
-    company_ids_seen = set()
+    # Process B2B contacts
+    process_contacts(contact_ids, contacts_csv, addresses_csv, companies_csv, company_ids_seen)
+    
+    # Process additional contacts from file
+    additional_contacts_file = './exports/additional_contacts.csv'
+    if os.path.exists(additional_contacts_file):
+        print("\n{} Starting additional contacts export...".format(INDICATORS['info']))
+        with open(additional_contacts_file, 'r') as f:
+            additional_contact_ids = [line.strip() for line in f if line.strip()]
+        print("{} Found {} additional contacts to process\n".format(INDICATORS['info'], len(additional_contact_ids)))
+        process_contacts(additional_contact_ids, contacts_csv, addresses_csv, companies_csv, company_ids_seen)
+    
+    # Print a newline after progress is complete
+    print("\n")
+    print("{} Writing export files:".format(INDICATORS['info']))
+    print("- contacts.csv: {} records".format(len(contacts_csv)))
+    write_contacts_csv(contacts_csv)
+    print("- addresses.csv: {} records".format(len(addresses_csv)))
+    write_addresses_csv(addresses_csv)
+    print("- companies.csv: {} records".format(len(companies_csv)))
+    write_companies_csv(companies_csv)
+    print('\n{} Export complete!'.format(INDICATORS['success']))
 
+def process_contacts(contact_ids, contacts_csv, addresses_csv, companies_csv, company_ids_seen):
+    """Process a list of contact IDs and update the CSV data lists."""
     total_contacts = len(contact_ids)
     for idx, cid in enumerate(contact_ids, 1):
         try:
@@ -482,17 +528,6 @@ def main():
         except Exception as e:
             print("\n{} Error processing contact {}: {}".format(INDICATORS['error'], cid, str(e)))
             continue
-
-    # Print a newline after progress is complete
-    print("\n")
-    print("{} Writing export files:".format(INDICATORS['info']))
-    print("- contacts.csv: {} records".format(len(contacts_csv)))
-    write_contacts_csv(contacts_csv)
-    print("- addresses.csv: {} records".format(len(addresses_csv)))
-    write_addresses_csv(addresses_csv)
-    print("- companies.csv: {} records".format(len(companies_csv)))
-    write_companies_csv(companies_csv)
-    print('\n{} Export complete!'.format(INDICATORS['success']))
 
 if __name__ == '__main__':
     main()
